@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  --ubuntu-orange: #E95420;
+  --ubuntu-orange-hover: #C94411;
+  --ubuntu-aubergine: #300A24;
+  --ubuntu-mid: #5E2750;
+  --ubuntu-light: #77216F;
+  --ubuntu-card: #3D1230;
+  --ubuntu-surface: #2C0A1E;
+  --ubuntu-warm-grey: #AEA79F;
+  --ubuntu-cool-grey: #333333;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Ubuntu', system-ui, -apple-system, sans-serif;
+  background: var(--ubuntu-aubergine);
+  background-image:
+    radial-gradient(ellipse at top left, rgba(119,33,111,0.3) 0%, transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(94,39,80,0.2) 0%, transparent 60%);
+  background-attachment: fixed;
+  color: #fff;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* html5-qrcode overrides */
+#qr-reader video {
+  width: 100% !important;
+  border-radius: 0.375rem;
+}
+#qr-reader {
+  border: none !important;
+  padding: 0 !important;
+  width: 100% !important;
+}
+#qr-reader__scan_region {
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+#qr-reader__dashboard {
+  display: none !important;
+}
