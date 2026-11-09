@@ -1,24 +1,52 @@
-export async function lookupBarcode(upc) {
-  const res = await fetch(`/api/prod/trial/lookup?upc=${encodeURIComponent(upc)}`);
+import { isValidBarcode, normalizeBarcode } from '../utils/barcode.js';
 
-  if (!res.ok) {
-    throw new Error('API_ERROR');
+export async function lookupBarcode(value) {
+  const barcode = normalizeBarcode(value);
+
+  if (!isValidBarcode(barcode)) {
+    throw new Error('INVALID_BARCODE');
   }
 
-  const data = await res.json();
+  let response;
 
-  if (!data.items || data.items.length === 0) {
+  try {
+    response = await fetch(`/api/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError') {
+      throw new Error('TIMEOUT');
+    }
+    throw new Error('NETWORK_ERROR');
+  }
+
+  if (response.status === 404) throw new Error('NOT_FOUND');
+  if (response.status === 429 || response.status === 503) throw new Error('RATE_LIMITED');
+  if (!response.ok) throw new Error('API_ERROR');
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('INVALID_RESPONSE');
+  }
+
+  if (!Array.isArray(data.items) || data.items.length === 0) {
     throw new Error('NOT_FOUND');
   }
 
   const item = data.items[0];
+  const asText = (field) => typeof field === 'string' ? field.trim() : '';
 
   return {
-    barcode: upc,
-    name: item.title || '',
-    brand: item.brand || '',
-    category: item.category || '',
-    description: item.description || '',
-    image: item.images?.[0] || '',
+    barcode,
+    name: asText(item.title),
+    brand: asText(item.brand),
+    category: asText(item.category),
+    description: asText(item.description),
+    image: Array.isArray(item.images) && typeof item.images[0] === 'string'
+      ? item.images[0]
+      : '',
   };
 }
