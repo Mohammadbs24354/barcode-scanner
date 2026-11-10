@@ -104,6 +104,7 @@ test('sales order validation rejects missing customer, warehouse, products and i
  assert.throws(()=>validateSalesOrder({...base,lines:[{productId:'p1',quantity:0,unitPrice:10}]}),/INVALID_SALES_ORDER_QUANTITY/);
  assert.throws(()=>validateSalesOrder({...base,lines:[{productId:'p1',quantity:1.5,unitPrice:10}]}),/INVALID_SALES_ORDER_QUANTITY/);
  assert.throws(()=>validateSalesOrder({...base,lines:[{productId:'p1',quantity:1,unitPrice:-1}]}),/INVALID_SALES_ORDER_PRICE/);
+ assert.throws(()=>validateSalesOrder({...base,lines:[{productId:'p1',quantity:1,unitPrice:10},{productId:'p1',quantity:2,unitPrice:10}]}),/DUPLICATE_SALES_ORDER_PRODUCT/);
 });
 
 test('sales order workflow only allows draft-confirm-pick-pack-ship transitions and cancellation before shipping', () => {
