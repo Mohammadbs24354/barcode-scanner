@@ -1,5 +1,5 @@
 const CACHE_NAME='stockflow-records-v1';
-const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts','returns','reservations']);
+const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts','returns','reservations','countSessions']);
 function recordUrl(name,key){if(!STORE_NAMES.has(name))throw Error('INVALID_STORE');return new URL('/__stockflow_cache__/'+name+'/'+encodeURIComponent(key),location.origin).href}
 async function openCache(){if(!('caches'in window))throw Error('CACHE_API_UNAVAILABLE');return caches.open(CACHE_NAME)}
 export const store={
@@ -151,4 +151,49 @@ export async function releaseReservation(reservationId){
  reservation.status='released';reservation.updatedAt=new Date().toISOString();
  await store.put('reservations',reservation);
  return reservation;
+}
+
+
+export function validateInventoryCounts(lines,counts){
+ if(!Array.isArray(lines)||!Array.isArray(counts)||lines.length!==counts.length)throw Error('INVALID_COUNT');
+ return lines.map((line,index)=>{const quantity=Number(counts[index]);if(!Number.isInteger(quantity)||quantity<0)throw Error('INVALID_COUNT_QUANTITY');return quantity});
+}
+export async function createInventoryCount(warehouseId){
+ const [warehouses,products]=await Promise.all([store.all('warehouses'),store.all('products')]);
+ if(!warehouses.some(w=>w.id===warehouseId))throw Error('WAREHOUSE_NOT_FOUND');
+ const now=new Date().toISOString(),session={id:id(),number:'INV-'+Date.now().toString().slice(-8),warehouseId,status:'open',createdAt:now,updatedAt:now,lines:products.map(p=>({productId:p.id,productName:p.name,barcode:p.barcode||'',expectedQty:Number((p.stockByWarehouse||{main:Number(p.stock||0)})[warehouseId]||0),countedQty:null}))};
+ await store.put('countSessions',session);
+ return session;
+}
+export async function completeInventoryCount(sessionId,counts){
+ const sessions=await store.all('countSessions'),session=sessions.find(s=>s.id===sessionId);
+ if(!session||session.status!=='open')throw Error('COUNT_NOT_OPEN');
+ const clean=validateInventoryCounts(session.lines,counts);
+ const products=await store.all('products'),productMap=new Map(products.map(p=>[p.id,p]));
+ const now=new Date().toISOString(),changes=[];
+ for(let index=0;index<session.lines.length;index++){
+  const line=session.lines[index],counted=clean[index],product=productMap.get(line.productId);
+  if(!product)throw Error('PRODUCT_NOT_FOUND');
+  const balances={...(product.stockByWarehouse||{main:Number(product.stock||0)})},before=Number(balances[session.warehouseId]||0);
+  const reserved=await getReservedQuantity(product.id,session.warehouseId);
+  if(counted<reserved)throw Error('COUNT_BELOW_RESERVED');
+  const delta=counted-before;
+  line.countedQty=counted;line.delta=delta;
+  if(delta!==0){
+   balances[session.warehouseId]=counted;
+   const updated={...product,stockByWarehouse:balances,stock:total({stockByWarehouse:balances}),updatedAt:now};
+   await store.put('products',updated);productMap.set(product.id,updated);
+   const movement={id:session.id+'-'+index,countSessionId:session.id,productId:product.id,productName:product.name,barcode:product.barcode||'',type:'adjust',quantity:Math.abs(delta),before,after:counted,warehouseId:session.warehouseId,note:'Inventur '+session.number+' · '+(delta>0?'+':'')+delta,createdAt:now};
+   await store.put('movements',movement);changes.push(movement);
+  }
+ }
+ session.status='completed';session.completedAt=now;session.updatedAt=now;session.lines= session.lines.map((line,index)=>({...line,countedQty:clean[index],delta:clean[index]-Number(productMap.get(line.productId)?.stockByWarehouse?.[session.warehouseId]??line.expectedQty)}));
+ await store.put('countSessions',session);
+ return {session,changes};
+}
+export async function cancelInventoryCount(sessionId){
+ const sessions=await store.all('countSessions'),session=sessions.find(s=>s.id===sessionId);
+ if(!session||session.status!=='open')throw Error('COUNT_NOT_OPEN');
+ session.status='cancelled';session.updatedAt=new Date().toISOString();
+ await store.put('countSessions',session);return session;
 }
