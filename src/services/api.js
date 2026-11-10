@@ -28,7 +28,7 @@ export async function lookupBarcode(value) {
   let data;
   try {
     data = await response.json();
-  } catch {
+  } catch (error) {
     throw new Error('INVALID_RESPONSE', { cause: error });
   }
 
