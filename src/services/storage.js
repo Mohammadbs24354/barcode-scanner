@@ -1,75 +1,14 @@
-const CACHE_NAME = 'stockflow-records-v1';
-const STORE_NAMES = new Set(['products', 'movements', 'warehouses']);
-
-function recordUrl(storeName, key) {
-  if (!STORE_NAMES.has(storeName)) throw new Error('INVALID_STORE');
-  return new URL('/__stockflow_cache__/' + storeName + '/' + encodeURIComponent(key), location.origin).href;
-}
-
-async function openCache() {
-  if (!('caches' in window)) throw new Error('CACHE_API_UNAVAILABLE');
-  return caches.open(CACHE_NAME);
-}
-
-export const store = {
-  async all(storeName) {
-    const cache = await openCache();
-    const requests = (await cache.keys()).filter(request =>
-      new URL(request.url).pathname.startsWith('/__stockflow_cache__/' + storeName + '/')
-    );
-    const values = await Promise.all(requests.map(async request => {
-      const response = await cache.match(request);
-      return response ? response.json() : null;
-    }));
-    return values.filter(Boolean);
-  },
-  async put(storeName, item) {
-    const cache = await openCache();
-    await cache.put(recordUrl(storeName, item.id), new Response(JSON.stringify(item), {
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    }));
-    return item;
-  },
-  async remove(storeName, key) {
-    const cache = await openCache();
-    await cache.delete(recordUrl(storeName, key));
-  },
+const CACHE_NAME='stockflow-records-v1';
+const STORE_NAMES=new Set(['products','movements','warehouses']);
+function recordUrl(name,key){if(!STORE_NAMES.has(name))throw Error('INVALID_STORE');return new URL('/__stockflow_cache__/'+name+'/'+encodeURIComponent(key),location.origin).href}
+async function openCache(){if(!('caches'in window))throw Error('CACHE_API_UNAVAILABLE');return caches.open(CACHE_NAME)}
+export const store={
+ async all(name){if(!STORE_NAMES.has(name))throw Error('INVALID_STORE');const c=await openCache(),prefix='/__stockflow_cache__/'+name+'/';const keys=(await c.keys()).filter(r=>new URL(r.url).pathname.startsWith(prefix));return(await Promise.all(keys.map(async r=>{try{return await(await c.match(r)).json()}catch{return null}}))).filter(Boolean)},
+ async put(name,item){if(!STORE_NAMES.has(name)||!item?.id)throw Error('INVALID_RECORD');const c=await openCache();await c.put(recordUrl(name,item.id),new Response(JSON.stringify(item),{headers:{'Content-Type':'application/json'}}));return item},
+ async remove(name,key){const c=await openCache();await c.delete(recordUrl(name,key))}
 };
-
-export const id = () =>
-  globalThis.crypto?.randomUUID?.() ||
-  'sf-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-
-export async function initStore() {
-  if (!(await store.all('warehouses')).length) {
-    await store.put('warehouses', {
-      id: 'main',
-      name: 'Hauptlager',
-      code: 'WH-001',
-      createdAt: new Date().toISOString(),
-    });
-  }
-}
-
-export async function bookMovement(product, type, qty, note = '') {
-  qty = Number(qty);
-  if (!Number.isFinite(qty) || qty <= 0) throw new Error('INVALID_QUANTITY');
-  const before = Number(product.stock || 0);
-  const after = type === 'in' ? before + qty : type === 'out' ? before - qty : qty;
-  if (after < 0) throw new Error('INSUFFICIENT_STOCK');
-  const updated = { ...product, stock: after, updatedAt: new Date().toISOString() };
-  await store.put('products', updated);
-  await store.put('movements', {
-    id: id(),
-    productId: product.id,
-    productName: product.name,
-    barcode: product.barcode,
-    type,
-    quantity: qty,
-    before,
-    after,
-    note,
-    createdAt: new Date().toISOString(),
-  });
-  return updated;
-}
+export const id=()=>globalThis.crypto?.randomUUID?.()||'sf-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+export async function initStore(){if(!(await store.all('warehouses')).length)await store.put('warehouses',{id:'main',name:'Hauptlager',code:'WH-001',createdAt:new Date().toISOString()});const ws=await store.all('warehouses');for(const p of await store.all('products'))if(!p.stockByWarehouse){p.stockByWarehouse={[ws[0]?.id||'main']:Number(p.stock||0)};await store.put('products',p)}}
+const total=p=>Object.values(p.stockByWarehouse||{}).reduce((s,n)=>s+Number(n||0),0);
+export async function bookMovement(product,type,qty,note='',warehouseId='main'){qty=Number(qty);if(!Number.isFinite(qty)||qty<=0)throw Error('INVALID_QUANTITY');const balances={...(product.stockByWarehouse||{main:Number(product.stock||0)})},before=Number(balances[warehouseId]||0),after=type==='in'?before+qty:type==='out'?before-qty:qty;if(after<0)throw Error('INSUFFICIENT_STOCK');balances[warehouseId]=after;const updated={...product,stockByWarehouse:balances,stock:total({stockByWarehouse:balances}),updatedAt:new Date().toISOString()};await store.put('products',updated);await store.put('movements',{id:id(),productId:product.id,productName:product.name,barcode:product.barcode,type,quantity:qty,before,after,warehouseId,note,createdAt:new Date().toISOString()});return updated}
+export async function transferStock(product,quantity,fromId,toId,note=''){const qty=Number(quantity);if(!Number.isFinite(qty)||qty<=0)throw Error('INVALID_QUANTITY');if(!fromId||!toId||fromId===toId)throw Error('INVALID_WAREHOUSE');const b={...(product.stockByWarehouse||{main:Number(product.stock||0)})},bf=Number(b[fromId]||0),bt=Number(b[toId]||0);if(bf<qty)throw Error('INSUFFICIENT_STOCK');b[fromId]=bf-qty;b[toId]=bt+qty;const updated={...product,stockByWarehouse:b,stock:total({stockByWarehouse:b}),updatedAt:new Date().toISOString()};await store.put('products',updated);const tid=id(),now=new Date().toISOString();await store.put('movements',{id:tid+'-out',transferId:tid,productId:product.id,productName:product.name,barcode:product.barcode,type:'transfer-out',quantity:qty,before:bf,after:b[fromId],warehouseId:fromId,targetWarehouseId:toId,note,createdAt:now});await store.put('movements',{id:tid+'-in',transferId:tid,productId:product.id,productName:product.name,barcode:product.barcode,type:'transfer-in',quantity:qty,before:bt,after:b[toId],warehouseId:toId,sourceWarehouseId:fromId,note,createdAt:now});return updated}
