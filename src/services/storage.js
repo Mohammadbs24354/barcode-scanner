@@ -1,59 +1,38 @@
-const DB_NAME = 'stockflow-local';
-const DB_VERSION = 1;
+const CACHE_NAME = 'stockflow-records-v1';
+const STORE_NAMES = new Set(['products', 'movements', 'warehouses']);
 
-function openDB() {
-  return new Promise((resolve, reject) => {
-    if (!('indexedDB' in window)) {
-      reject(new Error('INDEXEDDB_UNAVAILABLE'));
-      return;
-    }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      for (const name of ['products', 'movements', 'warehouses']) {
-        if (db.objectStoreNames.contains(name)) continue;
-        const store = db.createObjectStore(name, { keyPath: 'id' });
-        if (name === 'products') store.createIndex('barcode', 'barcode');
-        if (name === 'movements') {
-          store.createIndex('productId', 'productId');
-          store.createIndex('createdAt', 'createdAt');
-        }
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+function recordUrl(storeName, key) {
+  if (!STORE_NAMES.has(storeName)) throw new Error('INVALID_STORE');
+  return new URL('/__stockflow_cache__/' + storeName + '/' + encodeURIComponent(key), location.origin).href;
+}
+
+async function openCache() {
+  if (!('caches' in window)) throw new Error('CACHE_API_UNAVAILABLE');
+  return caches.open(CACHE_NAME);
 }
 
 export const store = {
-  async all(name) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(name, 'readonly');
-      const request = tx.objectStore(name).getAll();
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-      tx.oncomplete = () => db.close();
-      tx.onerror = () => { db.close(); reject(tx.error); };
-    });
+  async all(storeName) {
+    const cache = await openCache();
+    const requests = (await cache.keys()).filter(request =>
+      new URL(request.url).pathname.startsWith('/__stockflow_cache__/' + storeName + '/')
+    );
+    const values = await Promise.all(requests.map(async request => {
+      const response = await cache.match(request);
+      return response ? response.json() : null;
+    }));
+    return values.filter(Boolean);
   },
-  async put(name, item) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(name, 'readwrite');
-      tx.objectStore(name).put(item);
-      tx.oncomplete = () => { db.close(); resolve(item); };
-      tx.onerror = () => { db.close(); reject(tx.error); };
-    });
+  async put(storeName, item) {
+    const cache = await openCache();
+    await cache.put(recordUrl(storeName, item.id), new Response(JSON.stringify(item), {
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    }));
+    return item;
   },
-  async remove(name, key) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(name, 'readwrite');
-      tx.objectStore(name).delete(key);
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => { db.close(); reject(tx.error); };
-    });
+  async remove(storeName, key) {
+    const cache = await openCache();
+    await cache.delete(recordUrl(storeName, key));
   },
 };
 
