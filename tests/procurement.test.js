@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { purchaseOrderStatus, validateReceiptQuantities, validateReturn, validateReservation, validateInventoryCounts } from '../src/services/storage.js';
+import { purchaseOrderStatus, validateReceiptQuantities, validateReturn, validateReservation, validateInventoryCounts, validateStorageLocation } from '../src/services/storage.js';
 
 test('purchase order status reflects open, partial and complete quantities', () => {
  const lines=[{quantity:10,receivedQty:0},{quantity:5,receivedQty:0}];
@@ -69,4 +69,20 @@ test('inventory count validation rejects blank, negative, fractional and mismatc
  assert.throws(()=>validateInventoryCounts(lines,[-1]),/INVALID_COUNT_QUANTITY/);
  assert.throws(()=>validateInventoryCounts(lines,[1.5]),/INVALID_COUNT_QUANTITY/);
  assert.throws(()=>validateInventoryCounts(lines,[]),/INVALID_COUNT/);
+});
+
+
+test('storage location validation normalizes codes and accepts optional capacity', () => {
+ const result=validateStorageLocation({warehouseId:'wh1',code:' a-01-02 ',name:' Regal A',zone:'a',aisle:'01',rack:'02',capacity:'120'});
+ assert.equal(result.code,'A-01-02');
+ assert.equal(result.name,'Regal A');
+ assert.equal(result.capacity,120);
+ assert.equal(result.zone,'a');
+});
+
+test('storage location validation rejects missing warehouse, code and invalid capacity', () => {
+ assert.throws(()=>validateStorageLocation({code:'A-01'}),/INVALID_STORAGE_LOCATION/);
+ assert.throws(()=>validateStorageLocation({warehouseId:'wh1',code:'  '}),/INVALID_STORAGE_LOCATION/);
+ assert.throws(()=>validateStorageLocation({warehouseId:'wh1',code:'A-01',capacity:0}),/INVALID_STORAGE_CAPACITY/);
+ assert.throws(()=>validateStorageLocation({warehouseId:'wh1',code:'A-01',capacity:1.5}),/INVALID_STORAGE_CAPACITY/);
 });
