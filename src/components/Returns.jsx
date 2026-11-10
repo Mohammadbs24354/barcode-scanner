@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react';
-import {createReturn,id,store} from '../services/storage';
+import {createReturn,store} from '../services/storage';
 import './Returns.css';
 
 const labels={customer_return:'Kundenretoure',supplier_return:'Rückgabe an Lieferant'};
