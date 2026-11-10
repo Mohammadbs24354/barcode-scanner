@@ -1,5 +1,5 @@
 const CACHE_NAME='stockflow-records-v1';
-const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts']);
+const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts','returns']);
 function recordUrl(name,key){if(!STORE_NAMES.has(name))throw Error('INVALID_STORE');return new URL('/__stockflow_cache__/'+name+'/'+encodeURIComponent(key),location.origin).href}
 async function openCache(){if(!('caches'in window))throw Error('CACHE_API_UNAVAILABLE');return caches.open(CACHE_NAME)}
 export const store={
@@ -60,4 +60,39 @@ export async function receivePurchaseOrder(orderId,quantities){
  order.updatedAt=now;
  await store.put('purchaseOrders',order);
  return {order,receipt};
+}
+
+
+export function validateReturn(input){
+ const type=input?.type,quantity=Number(input?.quantity),condition=input?.condition;
+ if(!['customer_return','supplier_return'].includes(type))throw Error('INVALID_RETURN_TYPE');
+ if(!input.productId||!input.warehouseId||!String(input.reason||'').trim())throw Error('INVALID_RETURN');
+ if(!Number.isInteger(quantity)||quantity<=0)throw Error('INVALID_RETURN_QUANTITY');
+ if(!['resellable','damaged','quarantine'].includes(condition))throw Error('INVALID_RETURN_CONDITION');
+ return {...input,type,quantity,reason:String(input.reason).trim(),reference:String(input.reference||'').trim(),notes:String(input.notes||'').trim()};
+}
+
+export async function createReturn(input){
+ const clean=validateReturn(input);
+ const [products,warehouses]=await Promise.all([store.all('products'),store.all('warehouses')]);
+ const product=products.find(p=>p.id===clean.productId);
+ if(!product)throw Error('PRODUCT_NOT_FOUND');
+ if(!warehouses.some(w=>w.id===clean.warehouseId))throw Error('WAREHOUSE_NOT_FOUND');
+ const balances={...(product.stockByWarehouse||{main:Number(product.stock||0)})};
+ const before=Number(balances[clean.warehouseId]||0);
+ const stockImpact=clean.type==='customer_return'&&clean.condition==='resellable'?'in':clean.type==='supplier_return'?'out':'none';
+ if(stockImpact==='out'&&before<clean.quantity)throw Error('INSUFFICIENT_STOCK');
+ const now=new Date().toISOString(),returnId=id();
+ let after=before;
+ if(stockImpact==='in'||stockImpact==='out'){
+  after=stockImpact==='in'?before+clean.quantity:before-clean.quantity;
+  balances[clean.warehouseId]=after;
+  const updated={...product,stockByWarehouse:balances,stock:total({stockByWarehouse:balances}),updatedAt:now};
+  await store.put('products',updated);
+ }
+ const movement={id:returnId+'-movement',returnId,productId:product.id,productName:product.name,barcode:product.barcode||'',type:stockImpact==='in'?'in':stockImpact==='out'?'out':'return-blocked',quantity:clean.quantity,before,after,warehouseId:clean.warehouseId,note:(clean.type==='customer_return'?'Kundenretoure':'Lieferantenretoure')+' · '+clean.reason,createdAt:now};
+ await store.put('movements',movement);
+ const record={id:returnId,...clean,productName:product.name,barcode:product.barcode||'',stockImpact,stockBefore:before,stockAfter:after,movementId:movement.id,status:'booked',createdAt:now};
+ await store.put('returns',record);
+ return record;
 }
