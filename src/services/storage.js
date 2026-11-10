@@ -1,7 +1,7 @@
 const CACHE_NAME='stockflow-records-v1';
 const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts','returns','reservations','countSessions','storageLocations','salesOrders']);
 function recordUrl(name,key){if(!STORE_NAMES.has(name))throw Error('INVALID_STORE');return new URL('/__stockflow_cache__/'+name+'/'+encodeURIComponent(key),location.origin).href}
-async function openCache(){if(!('caches'in window))throw Error('CACHE_API_UNAVAILABLE');return caches.open(CACHE_NAME)}
+async function openCache(){if(!('caches'in window))throw Error('CACHE_API_UNAVAILABLE');return window.caches.open(CACHE_NAME)}
 export const store={
  async all(name){if(!STORE_NAMES.has(name))throw Error('INVALID_STORE');const c=await openCache(),prefix='/__stockflow_cache__/'+name+'/';const keys=(await c.keys()).filter(r=>new URL(r.url).pathname.startsWith(prefix));return(await Promise.all(keys.map(async r=>{try{return await(await c.match(r)).json()}catch{return null}}))).filter(Boolean)},
  async put(name,item){if(!STORE_NAMES.has(name)||!item?.id)throw Error('INVALID_RECORD');const c=await openCache();await c.put(recordUrl(name,item.id),new Response(JSON.stringify(item),{headers:{'Content-Type':'application/json'}}));return item},
