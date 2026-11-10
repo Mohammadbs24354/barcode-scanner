@@ -1,0 +1,13 @@
+{
+  "name": "StockFlow – Inventory & Warehouse",
+  "short_name": "StockFlow",
+  "description": "Offline-first inventory and warehouse workspace",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#300A24",
+  "theme_color": "#300A24",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
