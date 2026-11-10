@@ -142,3 +142,12 @@ footer span{color:#a2a9b5}
  body{background:#fff!important;color:#111!important}.sf-side,.sf-bar,.sf-heading button,.actions,footer,.rowbuttons{display:none!important}
  .sf-content{max-width:none;padding:0}.panel,.stat{box-shadow:none;break-inside:avoid}
 }
+
+.welcome-panel{display:flex;align-items:center;gap:17px;margin:0 0 20px;padding:19px 21px;border-color:#ded9ff;background:linear-gradient(105deg,#fbfaff,#fff)}
+.welcome-icon{width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center;border-radius:12px;background:#eeeaff;color:#5b45d6;font-size:23px}
+.welcome-panel>div:nth-child(2){flex:1;min-width:0}
+.welcome-panel span{color:#8272d9;font-size:9px;font-weight:700;letter-spacing:1.35px}
+.welcome-panel h2{margin:5px 0;color:#252d3c;font-size:15px}
+.welcome-panel p{max-width:780px;margin:0;color:#7b8494;font-size:11px;line-height:1.6}
+.welcome-panel .primary{white-space:nowrap}
+@media(max-width:760px){.welcome-panel{align-items:flex-start;flex-wrap:wrap}.welcome-panel .primary{width:100%}}
