@@ -119,7 +119,7 @@ test('sales order workflow only allows draft-confirm-pick-pack-ship transitions 
 
 
 async function withMemoryCache(run){
- const previousWindow=globalThis.window,previousLocation=globalThis.location;
+ const previousWindow=globalThis.window,previousLocation=globalThis.location,previousCaches=globalThis.caches;
  const records=new Map();
  const cache={
   keys:async()=>[...records.keys()].map(url=>new Request(url)),
@@ -127,11 +127,13 @@ async function withMemoryCache(run){
   put:async(key,response)=>{records.set(typeof key==='string'?key:key.url,response.clone())},
   delete:async key=>records.delete(typeof key==='string'?key:key.url)
  };
- globalThis.window={caches:{open:async()=>cache}};
+ globalThis.caches={open:async()=>cache};
+ globalThis.window={caches:globalThis.caches};
  globalThis.location={origin:'https://stockflow.test'};
  try{return await run()}finally{
   if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
   if(previousLocation===undefined)delete globalThis.location;else globalThis.location=previousLocation;
+  if(previousCaches===undefined)delete globalThis.caches;else globalThis.caches=previousCaches;
  }
 }
 async function seedOrderStock(quantity=10){
