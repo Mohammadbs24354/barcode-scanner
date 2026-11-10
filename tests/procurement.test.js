@@ -28,12 +28,13 @@ test('receipt quantities reject zero, negative, fractional and over-delivery', (
 test('return validation accepts customer and supplier returns with supported conditions', () => {
  const base={productId:'p1',warehouseId:'w1',quantity:2,reason:'Defekt',condition:'damaged'};
  assert.equal(validateReturn({...base,type:'customer_return'}).quantity,2);
- assert.equal(validateReturn({...base,type:'supplier_return'}).type,'supplier_return');
+ assert.equal(validateReturn({...base,type:'supplier_return',supplierId:'s1'}).type,'supplier_return');
 });
 
 test('return validation rejects invalid types, quantities, conditions and missing required fields', () => {
  const base={productId:'p1',warehouseId:'w1',quantity:2,reason:'Defekt',condition:'damaged',type:'customer_return'};
  assert.throws(()=>validateReturn({...base,type:'unknown'}),/INVALID_RETURN_TYPE/);
+ assert.throws(()=>validateReturn({...base,type:'supplier_return'}),/INVALID_RETURN/);
  assert.throws(()=>validateReturn({...base,quantity:0}),/INVALID_RETURN_QUANTITY/);
  assert.throws(()=>validateReturn({...base,quantity:1.2}),/INVALID_RETURN_QUANTITY/);
  assert.throws(()=>validateReturn({...base,condition:'resellable-ish'}),/INVALID_RETURN_CONDITION/);
