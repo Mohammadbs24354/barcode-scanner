@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { purchaseOrderStatus, validateReceiptQuantities, validateReturn } from '../src/services/storage.js';
+import { purchaseOrderStatus, validateReceiptQuantities, validateReturn, validateReservation } from '../src/services/storage.js';
 
 test('purchase order status reflects open, partial and complete quantities', () => {
  const lines=[{quantity:10,receivedQty:0},{quantity:5,receivedQty:0}];
@@ -39,4 +39,21 @@ test('return validation rejects invalid types, quantities, conditions and missin
  assert.throws(()=>validateReturn({...base,quantity:1.2}),/INVALID_RETURN_QUANTITY/);
  assert.throws(()=>validateReturn({...base,condition:'resellable-ish'}),/INVALID_RETURN_CONDITION/);
  assert.throws(()=>validateReturn({...base,reason:'  '}),/INVALID_RETURN/);
+});
+
+
+test('reservation validation accepts valid order reservations and normalizes optional fields', () => {
+ const result=validateReservation({productId:'p1',warehouseId:'w1',quantity:'4',orderReference:' SO-100 ',customer:' ACME ',notes:' fragile '});
+ assert.equal(result.quantity,4);
+ assert.equal(result.orderReference,'SO-100');
+ assert.equal(result.customer,'ACME');
+ assert.equal(result.notes,'fragile');
+});
+
+test('reservation validation rejects missing references and invalid quantities', () => {
+ const base={productId:'p1',warehouseId:'w1',quantity:4,orderReference:'SO-100'};
+ assert.throws(()=>validateReservation({...base,orderReference:'  '}),/INVALID_RESERVATION/);
+ assert.throws(()=>validateReservation({...base,quantity:0}),/INVALID_RESERVATION_QUANTITY/);
+ assert.throws(()=>validateReservation({...base,quantity:-1}),/INVALID_RESERVATION_QUANTITY/);
+ assert.throws(()=>validateReservation({...base,quantity:1.5}),/INVALID_RESERVATION_QUANTITY/);
 });
