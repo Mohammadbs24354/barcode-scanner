@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { purchaseOrderStatus, validateReceiptQuantities, validateReturn, validateReservation } from '../src/services/storage.js';
+import { purchaseOrderStatus, validateReceiptQuantities, validateReturn, validateReservation, validateInventoryCounts } from '../src/services/storage.js';
 
 test('purchase order status reflects open, partial and complete quantities', () => {
  const lines=[{quantity:10,receivedQty:0},{quantity:5,receivedQty:0}];
@@ -56,4 +56,17 @@ test('reservation validation rejects missing references and invalid quantities',
  assert.throws(()=>validateReservation({...base,quantity:0}),/INVALID_RESERVATION_QUANTITY/);
  assert.throws(()=>validateReservation({...base,quantity:-1}),/INVALID_RESERVATION_QUANTITY/);
  assert.throws(()=>validateReservation({...base,quantity:1.5}),/INVALID_RESERVATION_QUANTITY/);
+});
+
+
+test('inventory count validation accepts zero and positive whole-unit counts', () => {
+ assert.deepEqual(validateInventoryCounts([{productId:'p1'},{productId:'p2'}],[0,'7']),[0,7]);
+});
+
+test('inventory count validation rejects blank, negative, fractional and mismatched counts', () => {
+ const lines=[{productId:'p1'}];
+ assert.throws(()=>validateInventoryCounts(lines,['']),/INVALID_COUNT_QUANTITY/);
+ assert.throws(()=>validateInventoryCounts(lines,[-1]),/INVALID_COUNT_QUANTITY/);
+ assert.throws(()=>validateInventoryCounts(lines,[1.5]),/INVALID_COUNT_QUANTITY/);
+ assert.throws(()=>validateInventoryCounts(lines,[]),/INVALID_COUNT/);
 });
