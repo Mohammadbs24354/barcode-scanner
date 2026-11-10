@@ -4,7 +4,7 @@
 - Barcode scanning and product catalog with optional external product lookup.
 - Stock receipts, issues and adjustments per warehouse.
 - Multi-warehouse balances and transfer movements.
-- Supplier directory, purchase orders and goods receipts.
+- Supplier directory, purchase orders, partial goods receipts and receipt history.
 - Low-stock dashboard, stock valuation and movement history.
 - CSV product import/export and JSON backup export/restore.
 - Printable Code 39 barcode labels for selected products.
@@ -25,4 +25,4 @@ npm run check
 ```
 
 ## Boundaries
-No accounts, shared multi-user access, cloud synchronization or guaranteed durable server backup. CacheStorage is not transactional; avoid simultaneous edits in multiple tabs. Purchase order receiving currently books all remaining quantities in one receipt operation. PDF generation uses the browser's print-to-PDF feature. Barcode labels encode the displayed value as Code 39, rather than reproducing EAN/UPC symbology. Keep external backups before important stock operations.
+No accounts, shared multi-user access, cloud synchronization or guaranteed durable server backup. CacheStorage is not transactional; avoid simultaneous edits in multiple tabs. Purchase orders support multiple partial receipts; each receipt is recorded with its own stock movements and included in JSON backups. CacheStorage is not transactional, so avoid concurrent edits in multiple tabs and keep external backups. PDF generation uses the browser's print-to-PDF feature. Barcode labels encode the displayed value as Code 39, rather than reproducing EAN/UPC symbology. Keep external backups before important stock operations.
