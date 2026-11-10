@@ -156,7 +156,7 @@ export async function releaseReservation(reservationId){
 
 export function validateInventoryCounts(lines,counts){
  if(!Array.isArray(lines)||!Array.isArray(counts)||lines.length!==counts.length)throw Error('INVALID_COUNT');
- return lines.map((line,index)=>{const quantity=Number(counts[index]);if(!Number.isInteger(quantity)||quantity<0)throw Error('INVALID_COUNT_QUANTITY');return quantity});
+ return lines.map((line,index)=>{if(counts[index]===null||counts[index]===undefined||counts[index]==='')throw Error('INVALID_COUNT_QUANTITY');const quantity=Number(counts[index]);if(!Number.isInteger(quantity)||quantity<0)throw Error('INVALID_COUNT_QUANTITY');return quantity});
 }
 export async function createInventoryCount(warehouseId){
  const [warehouses,products]=await Promise.all([store.all('warehouses'),store.all('products')]);
@@ -187,7 +187,7 @@ export async function completeInventoryCount(sessionId,counts){
    await store.put('movements',movement);changes.push(movement);
   }
  }
- session.status='completed';session.completedAt=now;session.updatedAt=now;session.lines= session.lines.map((line,index)=>({...line,countedQty:clean[index],delta:clean[index]-Number(productMap.get(line.productId)?.stockByWarehouse?.[session.warehouseId]??line.expectedQty)}));
+ session.status='completed';session.completedAt=now;session.updatedAt=now;// Each line already contains the counted quantity and delta calculated against the current physical stock.
  await store.put('countSessions',session);
  return {session,changes};
 }
