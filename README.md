@@ -5,8 +5,9 @@
 - Stock receipts, issues and adjustments per warehouse.
 - Multi-warehouse balances and transfer movements.
 - Supplier directory, purchase orders, partial goods receipts and receipt history.
+- Returns management for customer returns and supplier returns, including reasons, item condition, references and stock impact.
 - Low-stock dashboard, stock valuation and movement history.
-- CSV product import/export and JSON backup export/restore.
+- CSV product import/export and JSON backup export/restore, including return records.
 - Printable Code 39 barcode labels for selected products.
 - Purchase order print layout and inventory report; use the browser print dialog to save either as PDF.
 - Excel-compatible Spreadsheet XML export (.xls) with Products, Movements and Purchase Orders worksheets.
@@ -25,4 +26,4 @@ npm run check
 ```
 
 ## Boundaries
-No accounts, shared multi-user access, cloud synchronization or guaranteed durable server backup. CacheStorage is not transactional; avoid simultaneous edits in multiple tabs. Purchase orders support multiple partial receipts; each receipt is recorded with its own stock movements and included in JSON backups. CacheStorage is not transactional, so avoid concurrent edits in multiple tabs and keep external backups. PDF generation uses the browser's print-to-PDF feature. Barcode labels encode the displayed value as Code 39, rather than reproducing EAN/UPC symbology. Keep external backups before important stock operations.
+No accounts, shared multi-user access, cloud synchronization or guaranteed durable server backup. CacheStorage is not transactional; avoid simultaneous edits in multiple tabs. Purchase orders support multiple partial receipts; each receipt is recorded with its own stock movements and included in JSON backups. Return records are included in version 4 JSON backups. Resellable customer returns increase available stock; damaged or quarantined customer returns are recorded without increasing available stock; supplier returns reduce stock only when sufficient quantity is available. CacheStorage is not transactional, so a failure during multi-record booking can leave partial writes; export backups regularly. CacheStorage is not transactional, so avoid concurrent edits in multiple tabs and keep external backups. PDF generation uses the browser's print-to-PDF feature. Barcode labels encode the displayed value as Code 39, rather than reproducing EAN/UPC symbology. Keep external backups before important stock operations.
