@@ -16,9 +16,9 @@ export async function lookupBarcode(value) {
     });
   } catch (error) {
     if (error.name === 'TimeoutError') {
-      throw new Error('TIMEOUT');
+      throw new Error('TIMEOUT', { cause: error });
     }
-    throw new Error('NETWORK_ERROR');
+    throw new Error('NETWORK_ERROR', { cause: error });
   }
 
   if (response.status === 404) throw new Error('NOT_FOUND');
@@ -28,8 +28,8 @@ export async function lookupBarcode(value) {
   let data;
   try {
     data = await response.json();
-  } catch {
-    throw new Error('INVALID_RESPONSE');
+  } catch (error) {
+    throw new Error('INVALID_RESPONSE', { cause: error });
   }
 
   if (!Array.isArray(data.items) || data.items.length === 0) {

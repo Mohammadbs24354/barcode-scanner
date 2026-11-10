@@ -1,170 +1,53 @@
-import { useRef, useState } from 'react';
+import {useCallback,useEffect,useMemo,useState} from 'react';
 import Scanner from '../components/Scanner';
-import ProductForm from '../components/ProductForm';
-import ProductCard from '../components/ProductCard';
-import SubmitPanel from '../components/SubmitPanel';
-import { lookupBarcode } from '../services/api';
-import { isValidBarcode } from '../utils/barcode';
-
-const emptyProduct = {
-  barcode: '',
-  name: '',
-  brand: '',
-  category: '',
-  description: '',
-  image: '',
-};
-
-const errorMessages = {
-  INVALID_BARCODE: 'Bitte gib einen gültigen EAN- oder UPC-Barcode ein.',
-  NOT_FOUND: 'Für diesen Barcode wurden keine Produktdaten gefunden. Du kannst die Angaben manuell ergänzen.',
-  RATE_LIMITED: 'Die Produktsuche ist momentan ausgelastet. Bitte versuche es später erneut.',
-  TIMEOUT: 'Die Anfrage hat zu lange gedauert. Bitte versuche es erneut.',
-  NETWORK_ERROR: 'Keine Verbindung zum Server. Bitte prüfe deine Internetverbindung.',
-  INVALID_RESPONSE: 'Der Produktdienst hat eine ungültige Antwort geliefert.',
-  API_ERROR: 'Die Produktinformationen konnten momentan nicht abgerufen werden.',
-};
-
-export default function Home() {
-  const [product, setProduct] = useState(emptyProduct);
-  const [loading, setLoading] = useState(false);
-  const [statusMsg, setStatusMsg] = useState('');
-  const [statusType, setStatusType] = useState('');
-  const [exportReady, setExportReady] = useState(false);
-  const requestId = useRef(0);
-
-  const handleScan = async (rawCode) => {
-    const code = String(rawCode ?? '').trim();
-    const currentRequest = ++requestId.current;
-
-    setStatusMsg('');
-    setStatusType('');
-    setExportReady(false);
-
-    if (!isValidBarcode(code)) {
-      setProduct({ ...emptyProduct, barcode: code });
-      setStatusMsg(errorMessages.INVALID_BARCODE);
-      setStatusType('error');
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const data = await lookupBarcode(code);
-      if (currentRequest !== requestId.current) return;
-
-      setProduct(data);
-      setStatusMsg('Produktdaten wurden erfolgreich geladen.');
-      setStatusType('success');
-    } catch (error) {
-      if (currentRequest !== requestId.current) return;
-
-      setProduct({ ...emptyProduct, barcode: code });
-      setStatusMsg(errorMessages[error.message] || errorMessages.API_ERROR);
-      setStatusType('error');
-    } finally {
-      if (currentRequest === requestId.current) setLoading(false);
-    }
-  };
-
-  const handleChange = (key, value) => {
-    setProduct((previous) => ({ ...previous, [key]: value }));
-    setExportReady(false);
-  };
-
-  const handleExport = () => {
-    if (!product.name.trim() || !isValidBarcode(product.barcode)) {
-      setStatusMsg('Bitte prüfe den Barcode und gib einen Produktnamen ein.');
-      setStatusType('error');
-      setExportReady(false);
-      return;
-    }
-
-    setStatusMsg('Deine Produktdaten sind bereit zum Export.');
-    setStatusType('success');
-    setExportReady(true);
-  };
-
-  const hasProduct = Boolean(product.name || product.barcode);
-
-  return (
-    <div className="min-h-screen">
-      <header style={{ background: '#2C0A1E', borderBottom: '1px solid rgba(233,84,32,0.3)' }}>
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
-            style={{ background: '#E95420' }}
-            aria-hidden="true"
-          >
-            B
-          </div>
-          <span className="font-medium text-white tracking-wide text-sm">Barcode Scanner</span>
-          <span className="ml-auto text-xs" style={{ color: '#AEA79F' }}>Produktdaten einfach erfassen</span>
-        </div>
-      </header>
-
-      <main className="max-w-2xl mx-auto px-4 py-8 space-y-5">
-        <div className="text-center py-4">
-          <h1 className="text-2xl sm:text-3xl font-light text-white tracking-wide">
-            Produkt<span style={{ color: '#E95420' }}>erkennung</span>
-          </h1>
-          <p style={{ color: '#AEA79F' }} className="text-sm mt-2">
-            Scanne einen Barcode oder gib die Nummer manuell ein
-          </p>
-        </div>
-
-        <Scanner onScan={handleScan} />
-
-        {loading && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="flex items-center justify-center gap-3 rounded-lg px-6 py-5"
-            style={{ background: '#3D1230', border: '1px solid rgba(255,255,255,0.08)' }}
-          >
-            <div
-              className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
-              style={{ borderColor: '#E95420', borderTopColor: 'transparent' }}
-              aria-hidden="true"
-            />
-            <p style={{ color: '#AEA79F' }} className="text-sm">Produktdaten werden geladen…</p>
-          </div>
-        )}
-
-        {statusMsg && !loading && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="rounded-lg px-4 py-3 text-sm font-medium flex items-start gap-2"
-            style={
-              statusType === 'success'
-                ? { background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#4ade80' }
-                : { background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', color: '#f87171' }
-            }
-          >
-            <span aria-hidden="true">{statusType === 'success' ? '✓' : '!'}</span>
-            <span>{statusMsg}</span>
-          </div>
-        )}
-
-        {hasProduct ? (
-          <>
-            <ProductCard data={product} />
-            <ProductForm data={product} onChange={handleChange} onSubmit={handleExport} />
-            {exportReady && <SubmitPanel data={product} />}
-          </>
-        ) : (
-          <ProductCard data={emptyProduct} />
-        )}
-
-        <footer className="text-center pt-2 pb-6">
-          <p className="text-xs" style={{ color: 'rgba(174,167,159,0.55)' }}>
-            Produktinformationen werden über UPCitemdb abgerufen. Nicht alle Barcodes sind in der Datenbank verfügbar.
-          </p>
-        </footer>
-      </main>
-    </div>
-  );
+import Procurement from '../components/Procurement';
+import Returns from '../components/Returns';
+import Reservations from '../components/Reservations';
+import InventoryCount from '../components/InventoryCount';
+import StorageLocations from '../components/StorageLocations';
+import Orders from '../components/Orders';
+import PrintTools from '../components/PrintTools';
+import {lookupBarcode} from '../services/api';
+import {isValidBarcode} from '../utils/barcode';
+import {bookMovement,id,initStore,store,transferStock} from '../services/storage';
+import './StockFlow.css';
+const empty={barcode:'',sku:'',name:'',brand:'',category:'',description:'',location:'A-01-01',stock:0,minStock:5,cost:0,price:0};
+const euro=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n||0));
+const stamp=d=>new Date(d).toLocaleString('de-DE');
+function download(name,data,type){const u=URL.createObjectURL(new Blob([data],{type})),a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u)}
+export default function Home(){
+ const [products,setProducts]=useState([]),[moves,setMoves]=useState([]),[warehouses,setWarehouses]=useState([]),[suppliers,setSuppliers]=useState([]),[purchaseOrders,setPurchaseOrders]=useState([]),[receipts,setReceipts]=useState([]),[returnRecords,setReturnRecords]=useState([]),[reservations,setReservations]=useState([]),[countSessions,setCountSessions]=useState([]),[storageLocations,setStorageLocations]=useState([]),[salesOrders,setSalesOrders]=useState([]),[tab,setTab]=useState('dashboard'),[form,setForm]=useState(empty),[editing,setEditing]=useState(null),[q,setQ]=useState(''),[category,setCategory]=useState('all'),[scanner,setScanner]=useState(false),[notice,setNotice]=useState(''),[busy,setBusy]=useState(true),[move,setMove]=useState(null),[warehouseName,setWarehouseName]=useState(''),[transfer,setTransfer]=useState({productId:'',fromId:'main',toId:'',quantity:1,note:''});
+ const refresh=useCallback(async()=>{const [p,m,w,s,po,r,ret,res,counts,sl,so]=await Promise.all([store.all('products'),store.all('movements'),store.all('warehouses'),store.all('suppliers'),store.all('purchaseOrders'),store.all('receipts'),store.all('returns'),store.all('reservations'),store.all('countSessions'),store.all('storageLocations'),store.all('salesOrders')]);setSuppliers(s);setPurchaseOrders(po);setReceipts(r);setReturnRecords(ret);setReservations(res);setCountSessions(counts);setStorageLocations(sl);setSalesOrders(so);setProducts(p.sort((a,b)=>a.name.localeCompare(b.name)));setMoves(m.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)));setWarehouses(w)},[]);
+ useEffect(()=>{initStore().then(refresh).catch(()=>setNotice('Die Browser Cache API ist in diesem Browser nicht verfügbar.')).finally(()=>setBusy(false))},[refresh]);
+ const tell=s=>{setNotice(s);setTimeout(()=>setNotice(''),3500)};
+ const reservedFor=productId=>reservations.filter(r=>r.productId===productId&&['active','partially_fulfilled'].includes(r.status)).reduce((sum,r)=>sum+Math.max(0,Number(r.quantity||0)-Number(r.fulfilledQty||0)-Number(r.releasedQty||0)),0),availableUnits=products.reduce((sum,p)=>sum+Math.max(0,Number(p.stock||0)-reservedFor(p.id)),0),low=products.filter(p=>Math.max(0,Number(p.stock||0)-reservedFor(p.id))<=Number(p.minStock)),value=products.reduce((n,p)=>n+Number(p.stock||0)*Number(p.cost||0),0),cats=[...new Set(products.map(p=>p.category).filter(Boolean))];
+ const shown=useMemo(()=>products.filter(p=>(!q||[p.name,p.barcode,p.sku,p.brand,p.location].some(v=>String(v||'').toLowerCase().includes(q.toLowerCase())))&&(category==='all'||p.category===category)),[products,q,category]);
+ const save=async e=>{e.preventDefault();if(!form.name.trim())return tell('Bitte Produktnamen eingeben.');if(form.barcode&&!isValidBarcode(form.barcode))return tell('Barcode-Prüfziffer ist ungültig.');if(products.some(p=>p.barcode&&p.barcode===form.barcode&&p.id!==editing?.id))return tell('Barcode ist bereits vergeben.');const p={...form,id:editing?.id||id(),stock:Number(form.stock||0),stockByWarehouse:editing?.stockByWarehouse||{[warehouses[0]?.id||'main']:Number(form.stock||0)},minStock:Number(form.minStock||0),cost:Number(form.cost||0),price:Number(form.price||0),createdAt:editing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};await store.put('products',p);await refresh();setEditing(null);setForm(empty);tell('Produkt lokal gespeichert.')};
+ const edit=p=>{setEditing(p);setForm({...empty,...p});setTab('products')};
+ const scan=async code=>{setScanner(false);const p=products.find(x=>x.barcode===code);if(p){setMove({product:p,type:'in',qty:1,note:'Barcode-Scan'});setTab('movements');return}let data={...empty,barcode:code};try{data={...data,...await lookupBarcode(code)}}catch{/* Product lookup is optional; continue with manual entry. */}setEditing(null);setForm(data);setTab('products');tell('Barcode erfasst. Produktdaten prüfen und speichern.')};
+ const book=async e=>{e.preventDefault();try{await bookMovement(move.product,move.type,move.qty,move.note,move.warehouseId||warehouses[0]?.id||'main');await refresh();setMove(null);tell('Lagerbewegung gebucht.')}catch(err){tell(err.message==='INSUFFICIENT_STOCK'?'Nicht genügend Bestand.':'Bitte eine gültige Menge eingeben.')}};
+ const exportCSV=()=>{const keys=['barcode','sku','name','brand','category','stock','minStock','cost','price','location'];download('stockflow-products.csv','\uFEFF'+[keys.join(';'),...products.map(p=>keys.map(k=>'"'+String(p[k]??'').replaceAll('"','""')+'"').join(';'))].join('\n'),'text/csv;charset=utf-8')};
+ const exportBackup=async()=>download('stockflow-backup.json',JSON.stringify({version:8,exportedAt:new Date().toISOString(),products,movements:moves,warehouses,suppliers,purchaseOrders,receipts,returns:returnRecords,reservations,countSessions,storageLocations,salesOrders},null,2),'application/json');
+ const importBackup=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!Array.isArray(data.products)||!Array.isArray(data.movements)||!Array.isArray(data.warehouses))throw Error();for(const s of data.suppliers||[])if(s.id)await store.put('suppliers',s);for(const po of data.purchaseOrders||[])if(po.id)await store.put('purchaseOrders',po);for(const r of data.receipts||[])if(r.id)await store.put('receipts',r);for(const r of data.returns||[])if(r.id)await store.put('returns',r);for(const r of data.reservations||[])if(r.id)await store.put('reservations',r);for(const s of data.countSessions||[])if(s.id)await store.put('countSessions',s);for(const l of data.storageLocations||[])if(l.id)await store.put('storageLocations',l);for(const o of data.salesOrders||[])if(o.id)await store.put('salesOrders',o);for(const w of data.warehouses)if(w.id)await store.put('warehouses',w);for(const p of data.products)if(p.id)await store.put('products',p);for(const m of data.movements)if(m.id)await store.put('movements',m);await initStore();await refresh();tell('Backup erfolgreich wiederhergestellt.')}catch{tell('Backup ungültig oder beschädigt.')}e.target.value=''};
+const doTransfer=async e=>{e.preventDefault();const p=products.find(x=>x.id===transfer.productId);if(!p)return tell('Bitte ein Produkt auswählen.');try{await transferStock(p,transfer.quantity,transfer.fromId,transfer.toId,transfer.note);await refresh();tell('Umlagerung erfolgreich gebucht.')}catch(err){tell(err.message==='INSUFFICIENT_STOCK'?'Nicht genügend Bestand im Quelllager.':'Bitte Menge und unterschiedliche Lager prüfen.')}}; const importCSV=async e=>{const f=e.target.files?.[0];if(!f)return;const lines=(await f.text()).replace(/^\uFEFF/,'').split(/\r?\n/).filter(Boolean),keys=lines.shift().split(/[;,]/).map(x=>x.trim());let count=0;for(const line of lines){const vals=line.split(/[;,]/),row=Object.fromEntries(keys.map((k,i)=>[k,(vals[i]||'').replace(/^"|"$/g,'')]));if(!row.name)continue;const old=products.find(p=>row.barcode&&p.barcode===row.barcode);await store.put('products',{...empty,...row,id:old?.id||id(),stock:Number(row.stock||0),stockByWarehouse:old?.stockByWarehouse||{[warehouses[0]?.id||'main']:Number(row.stock||0)},minStock:Number(row.minStock||5),cost:Number(row.cost||0),price:Number(row.price||0),createdAt:old?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()});count++}await refresh();e.target.value='';tell(count+' Produkte importiert.')};
+ if(busy)return <div className="sf-loading">StockFlow wird geladen …</div>;
+ return <div className="sf-app"><aside className="sf-side"><div className="sf-brand"><b>S</b><span>Stock<span>Flow</span><small>INVENTORY WORKSPACE</small></span></div><label>WORKSPACE</label>{[['dashboard','▦','Übersicht'],['products','▤','Produkte'],['movements','⇄','Lagerbewegungen'],['warehouses','⌂','Lagerorte'],['purchasing','€','Beschaffung'],['returns','↩','Retouren'],['reservations','▣','Reservierungen'],['inventory','▤','Inventur'],['storageLocations','▦','Lagerplätze'],['orders','▣','Kundenaufträge']].map(([k,i,t])=><button key={k} className={tab===k?'selected':''} onClick={()=>setTab(k)}><i>{i}</i>{t}</button>)}<div className="sf-sidefoot">● Lokaler Speicher aktiv<small>Daten bleiben im Browser-Cache.</small></div></aside>
+ <main className="sf-main"><header className="sf-bar"><span>Workspace / <b>{{dashboard:'Übersicht',products:'Produkte',movements:'Lagerbewegungen',warehouses:'Lagerorte',purchasing:'Beschaffung',returns:'Retouren',reservations:'Reservierungen',inventory:'Inventur',storageLocations:'Lagerplätze',orders:'Kundenaufträge'}[tab]}</b></span><div><em>● Lokal gespeichert</em><button className="primary" onClick={()=>{setEditing(null);setForm(empty);setTab('products')}}>＋ Produkt</button></div></header><div className="sf-content">{notice&&<div className="notice" role="status">{notice}<button onClick={()=>setNotice('')}>×</button></div>}
+ {tab==='dashboard'&&<><div className="sf-heading"><div><label>INVENTAR AUF EINEN BLICK</label><h1>Übersicht</h1><p>Dein aktueller Lagerbestand und die wichtigsten Kennzahlen.</p></div><button className="outline" onClick={()=>setScanner(!scanner)}>▦ Barcode scannen</button></div>{scanner&&<section className="panel scanner"><Scanner onScan={scan}/></section>}<div className="stats"><Stat label="Produkte gesamt" value={products.length} hint="Artikel im Katalog" icon="▤"/><Stat label="Frei verfügbare Einheiten" value={availableUnits} hint="Nach Abzug aktiver Reservierungen" icon="▦"/><Stat label="Lagerwert (EK)" value={euro(value)} hint="Bestand × Einkaufspreis" icon="€"/><Stat label="Niedriger Bestand" value={low.length} hint="Unter Mindestbestand" icon="⚠" warn={low.length>0}/></div><PrintTools products={products} moves={moves} orders={purchaseOrders} suppliers={suppliers} warehouses={warehouses}/><div className="columns"><section className="panel"><PanelTitle title="Bestandswarnungen" subtitle="Artikel am oder unter Mindestbestand"/>{low.length?<Table products={low.slice(0,7)} reservations={reservations} storageLocations={storageLocations} edit={edit} move={p=>setMove({product:p,type:'in',qty:1,note:''})}/>:<Empty>Keine Bestandswarnungen vorhanden.</Empty>}</section><section className="panel"><PanelTitle title="Letzte Aktivitäten" subtitle="Die jüngsten Lagerbewegungen"/>{moves.length?<div className="activity">{moves.slice(0,7).map(m=><div key={m.id}><b className={m.type==='in'?'green':'red'}>{m.type==='in'?'+':'−'}{m.quantity}</b><span><strong>{m.productName}</strong><small>{stamp(m.createdAt)} · {m.note||m.type}</small></span></div>)}</div>:<Empty>Noch keine Lagerbewegungen.</Empty>}</section></div><section className="panel"><PanelTitle title="Zuletzt aktualisierte Produkte" subtitle="Dein Produktkatalog"/><Table products={[...products].sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||'')).slice(0,8)} reservations={reservations} edit={edit} move={p=>setMove({product:p,type:'in',qty:1,note:''})}/></section></>}
+ {tab==='products'&&<><div className="sf-heading"><div><label>ARTIKELSTAMM</label><h1>Produkte</h1><p>Produkte, Barcodes, Preise und Bestände verwalten.</p></div><div className="actions"><label className="outline file">↑ CSV importieren<input type="file" accept=".csv" onChange={importCSV}/></label><button className="outline" onClick={exportCSV}>↓ CSV Export</button><button className="primary" onClick={()=>{setEditing(null);setForm(empty)}}>＋ Neu</button></div></div><section className="panel formpanel"><form onSubmit={save}><h2>{editing?'Produkt bearbeiten':'Produkt anlegen'}</h2><div className="formgrid">{[['name','Produktname *','text'],['barcode','Barcode EAN/UPC','text'],['sku','SKU / Artikelnummer','text'],['brand','Marke','text'],['category','Kategorie','text'],['location','Lagerplatz','text'],['stock','Bestand','number'],['minStock','Mindestbestand','number'],['cost','Einkaufspreis €','number'],['price','Verkaufspreis €','number']].map(([k,l,t])=><label key={k}>{l}<input required={k==='name'} type={t} min={t==='number'?0:undefined} step={['cost','price'].includes(k)?'0.01':'1'} value={form[k]??''} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}</div><label className="wide">Beschreibung<textarea rows="2" value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})}/></label><div className="formactions"><button type="button" className="outline" onClick={()=>{setEditing(null);setForm(empty)}}>Zurücksetzen</button><button className="primary">✓ Speichern</button></div></form></section><section className="panel"><div className="tools"><div><h2>Alle Produkte <small>{shown.length}</small></h2><p>Suche nach Name, Barcode, SKU oder Lagerplatz.</p></div><div><input placeholder="Produkte durchsuchen …" value={q} onChange={e=>setQ(e.target.value)}/><select value={category} onChange={e=>setCategory(e.target.value)}><option value="all">Alle Kategorien</option>{cats.map(c=><option key={c}>{c}</option>)}</select></div></div><Table products={shown} reservations={reservations} edit={edit} remove={async p=>{if(confirm('Produkt wirklich löschen?')){await store.remove('products',p.id);await refresh();tell('Produkt gelöscht.')}}} move={p=>setMove({product:p,type:'in',qty:1,note:''})}/></section></>}
+ {tab==='movements'&&<><div className="sf-heading"><div><label>WARENFLUSS</label><h1>Lagerbewegungen</h1><p>Wareneingänge, Warenausgänge und Korrekturen.</p></div><div className="actions"><button className="outline" onClick={exportBackup}>↓ Backup JSON</button><label className="outline file">↑ Backup wiederherstellen<input type="file" accept="application/json,.json" onChange={importBackup}/></label></div></div>{move&&<section className="panel movement"><form onSubmit={book}><div><h2>{move.product.name}</h2><p>Aktueller Bestand: {move.product.stock} · {move.product.barcode}</p></div><label>Bewegung<select value={move.type} onChange={e=>setMove({...move,type:e.target.value})}><option value="in">Wareneingang (+)</option><option value="out">Warenausgang (−)</option><option value="adjust">Bestand setzen</option></select></label><label>Menge<input type="number" min="1" value={move.qty} onChange={e=>setMove({...move,qty:e.target.value})}/></label><label>Notiz<input value={move.note} onChange={e=>setMove({...move,note:e.target.value})}/></label><button className="primary">Buchen</button><button type="button" className="outline" onClick={()=>setMove(null)}>Abbrechen</button></form></section>}<section className="panel"><PanelTitle title="Bewegungsprotokoll" subtitle={moves.length+' Einträge'}/><div className="tablewrap"><table><thead><tr><th>Datum</th><th>Produkt</th><th>Typ</th><th>Menge</th><th>Vorher</th><th>Nachher</th><th>Notiz</th></tr></thead><tbody>{moves.map(m=><tr key={m.id}><td>{stamp(m.createdAt)}</td><td><strong>{m.productName}</strong><small>{m.barcode}</small></td><td>{m.type==='in'?'Wareneingang':m.type==='out'?'Warenausgang':m.type==='return-blocked'?'Retoure (gesperrt)':'Korrektur'}</td><td>{m.quantity}</td><td>{m.before}</td><td>{m.after}</td><td>{m.note||'—'}</td></tr>)}</tbody></table>{!moves.length&&<Empty>Noch keine Bewegungen gebucht.</Empty>}</div></section></>}
+ {tab==='purchasing'&&<Procurement onRefresh={refresh}/>}
+ {tab==='returns'&&<Returns onRefresh={refresh}/>}
+ {tab==='reservations'&&<Reservations onRefresh={refresh}/> }
+ {tab==='inventory'&&<InventoryCount onRefresh={refresh}/> }
+ {tab==='storageLocations'&&<StorageLocations onRefresh={refresh}/> }
+ {tab==='orders'&&<Orders onRefresh={refresh}/> }
+ {tab==='warehouses'&&<><div className="sf-heading"><div><label>STANDORTE</label><h1>Lagerorte</h1><p>Verwalte die Lagerstandorte deiner Organisation.</p></div></div><section className="panel"><form className="warehouseform" onSubmit={async e=>{e.preventDefault();if(!warehouseName.trim())return;await store.put('warehouses',{id:id(),name:warehouseName.trim(),code:'WH-'+String(warehouses.length+1).padStart(3,'0'),createdAt:new Date().toISOString()});setWarehouseName('');await refresh();tell('Lagerort angelegt.')}}><input placeholder="Name des neuen Lagers" value={warehouseName} onChange={e=>setWarehouseName(e.target.value)}/><button className="primary">＋ Lager hinzufügen</button></form><section className="transferpanel"><h2>Bestand umlagern</h2><p>Verschiebe Artikel zwischen Lagerstandorten mit automatischem Bewegungsprotokoll.</p><form onSubmit={doTransfer}><label>Produkt<select required value={transfer.productId} onChange={e=>setTransfer({...transfer,productId:e.target.value})}><option value="">Produkt auswählen</option>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label>Von Lager<select value={transfer.fromId} onChange={e=>setTransfer({...transfer,fromId:e.target.value})}>{warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Nach Lager<select value={transfer.toId} onChange={e=>setTransfer({...transfer,toId:e.target.value})}>{warehouses.filter(w=>w.id!==transfer.fromId).map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Menge<input type="number" min="1" step="1" value={transfer.quantity} onChange={e=>setTransfer({...transfer,quantity:e.target.value})}/></label><label>Notiz<input value={transfer.note} onChange={e=>setTransfer({...transfer,note:e.target.value})}/></label><button className="primary" disabled={warehouses.length<2||!products.length}>Umlagerung buchen</button></form></section><div className="warehousegrid">{warehouses.map(w=><article key={w.id}><b>⌂</b><h2>{w.name}</h2><p>{w.code}</p><small>{products.filter(p=>Number(p.stockByWarehouse?.[w.id]||0)>0).length} Produkte · {products.reduce((sum,p)=>sum+Number(p.stockByWarehouse?.[w.id]||0),0)} Einheiten</small></article>)}</div><div className="info"><strong>Lokaler Betrieb</strong><p>Diese Version speichert alle Daten im Browser. Bestände werden je Lagerort getrennt geführt. Umlagerungen buchen automatisch einen Ausgang im Quelllager und einen Zugang im Ziellager.</p></div></section></>}
+ <footer>StockFlow · Offline-first Inventory Workspace <span>Keine Server-Datenbank · Browser-Cache API</span></footer></div></main>
+ {move&&tab!=='movements'&&<div className="backdrop"><section className="modal"><button className="close" onClick={()=>setMove(null)}>×</button><h2>Lagerbewegung buchen</h2><p>{move.product.name} · Bestand {move.product.stock}</p><form onSubmit={book}><label>Typ<select value={move.type} onChange={e=>setMove({...move,type:e.target.value})}><option value="in">Wareneingang (+)</option><option value="out">Warenausgang (−)</option></select></label><label>Menge<input type="number" min="1" value={move.qty} onChange={e=>setMove({...move,qty:e.target.value})}/></label><label>Notiz<input value={move.note} onChange={e=>setMove({...move,note:e.target.value})}/></label><button className="primary">Buchen</button></form></section></div>}
+ </div>
 }
+function Stat({label,value,hint,icon,warn}){return <article className="stat"><i>{icon}</i><p>{label}</p><strong className={warn?'warn':''}>{value}</strong><small>{hint}</small></article>}
+function PanelTitle({title,subtitle}){return <div className="paneltitle"><div><h2>{title}</h2><p>{subtitle}</p></div></div>}
+function Empty({children}){return <div className="empty">▤<p>{children}</p></div>}
+function Table({products,edit,remove,move,reservations=[],storageLocations=[]}){const locationFor=p=>Object.values(p.storageLocationByWarehouse||{}).map(lid=>storageLocations.find(l=>l.id===lid)?.code).filter(Boolean).join(', ')||p.location||'—';const reservedFor=productId=>reservations.filter(r=>r.productId===productId&&['active','partially_fulfilled'].includes(r.status)).reduce((sum,r)=>sum+Math.max(0,Number(r.quantity||0)-Number(r.fulfilledQty||0)-Number(r.releasedQty||0)),0);return <div className="tablewrap"><table><thead><tr><th>Produkt</th><th>Barcode / SKU</th><th>Kategorie</th><th>Bestand (physisch / verfügbar)</th><th>Lagerplatz</th><th>Lagerwert</th><th>Aktion</th></tr></thead><tbody>{products.map(p=><tr key={p.id}><td><strong>{p.name}</strong><small>{p.brand||'—'}</small></td><td className="mono">{p.barcode||'—'}<small>{p.sku}</small></td><td>{p.category||'—'}</td><td><span className={'pill '+(Math.max(0,Number(p.stock)-reservedFor(p.id))<=Number(p.minStock)?'low':'ok')}>{Math.max(0,Number(p.stock)-reservedFor(p.id))} verfügbar</span><small>{p.stock} physisch · {reservedFor(p.id)} reserviert</small></td><td>{locationFor(p)}</td><td>{euro(Number(p.stock||0)*Number(p.cost||0))}</td><td><div className="rowbuttons"><button title="Bestand ändern" onClick={()=>move(p)}>⇄</button><button title="Bearbeiten" onClick={()=>edit(p)}>✎</button>{remove&&<button title="Löschen" onClick={()=>remove(p)}>×</button>}</div></td></tr>)}</tbody></table>{!products.length&&<Empty>Keine Produkte gefunden.</Empty>}</div>}
