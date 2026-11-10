@@ -1,5 +1,3 @@
-import { isValidBarcode } from '../utils/barcode';
-
 export default function ProductForm({ data, onChange, onSubmit }) {
   const fields = [
     { key: 'barcode', label: 'Barcode', type: 'text', required: true },
