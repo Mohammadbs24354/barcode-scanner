@@ -1,5 +1,5 @@
 const CACHE_NAME='stockflow-records-v1';
-const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts','returns','reservations','countSessions']);
+const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts','returns','reservations','countSessions','storageLocations']);
 function recordUrl(name,key){if(!STORE_NAMES.has(name))throw Error('INVALID_STORE');return new URL('/__stockflow_cache__/'+name+'/'+encodeURIComponent(key),location.origin).href}
 async function openCache(){if(!('caches'in window))throw Error('CACHE_API_UNAVAILABLE');return caches.open(CACHE_NAME)}
 export const store={
@@ -196,4 +196,48 @@ export async function cancelInventoryCount(sessionId){
  if(!session||session.status!=='open')throw Error('COUNT_NOT_OPEN');
  session.status='cancelled';session.updatedAt=new Date().toISOString();
  await store.put('countSessions',session);return session;
+}
+
+
+export function validateStorageLocation(input){
+ const code=String(input?.code||'').trim().toUpperCase();
+ const warehouseId=String(input?.warehouseId||'').trim();
+ const capacity=input?.capacity===''||input?.capacity===null||input?.capacity===undefined?null:Number(input.capacity);
+ if(!warehouseId||!code)throw Error('INVALID_STORAGE_LOCATION');
+ if(capacity!==null&&(!Number.isInteger(capacity)||capacity<=0))throw Error('INVALID_STORAGE_CAPACITY');
+ return {...input,warehouseId,code,name:String(input.name||code).trim(),zone:String(input.zone||'').trim(),aisle:String(input.aisle||'').trim(),rack:String(input.rack||'').trim(),shelf:String(input.shelf||'').trim(),bin:String(input.bin||'').trim(),capacity,description:String(input.description||'').trim()};
+}
+export async function createStorageLocation(input){
+ const clean=validateStorageLocation(input),[warehouses,locations]=await Promise.all([store.all('warehouses'),store.all('storageLocations')]);
+ if(!warehouses.some(w=>w.id===clean.warehouseId))throw Error('WAREHOUSE_NOT_FOUND');
+ if(locations.some(l=>l.warehouseId===clean.warehouseId&&l.code===clean.code))throw Error('STORAGE_LOCATION_EXISTS');
+ const record={id:id(),...clean,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+ await store.put('storageLocations',record);return record;
+}
+export async function updateStorageLocation(locationId,input){
+ const locations=await store.all('storageLocations'),existing=locations.find(l=>l.id===locationId);
+ if(!existing)throw Error('STORAGE_LOCATION_NOT_FOUND');
+ const clean=validateStorageLocation(input);
+ if(clean.warehouseId!==existing.warehouseId)throw Error('STORAGE_LOCATION_WAREHOUSE_IMMUTABLE');
+ if(locations.some(l=>l.id!==locationId&&l.warehouseId===clean.warehouseId&&l.code===clean.code))throw Error('STORAGE_LOCATION_EXISTS');
+ const updated={...existing,...clean,updatedAt:new Date().toISOString()};
+ await store.put('storageLocations',updated);return updated;
+}
+export async function deleteStorageLocation(locationId){
+ const [locations,products]=await Promise.all([store.all('storageLocations'),store.all('products')]);
+ const location=locations.find(l=>l.id===locationId);
+ if(!location)throw Error('STORAGE_LOCATION_NOT_FOUND');
+ if(products.some(p=>p.storageLocationByWarehouse?.[location.warehouseId]===locationId))throw Error('STORAGE_LOCATION_IN_USE');
+ await store.remove('storageLocations',locationId);return true;
+}
+export async function assignProductStorageLocation(productId,warehouseId,locationId){
+ const [products,warehouses,locations]=await Promise.all([store.all('products'),store.all('warehouses'),store.all('storageLocations')]);
+ const product=products.find(p=>p.id===productId);
+ if(!product)throw Error('PRODUCT_NOT_FOUND');
+ if(!warehouses.some(w=>w.id===warehouseId))throw Error('WAREHOUSE_NOT_FOUND');
+ if(locationId&&!locations.some(l=>l.id===locationId&&l.warehouseId===warehouseId))throw Error('STORAGE_LOCATION_WAREHOUSE_MISMATCH');
+ const assignments={...(product.storageLocationByWarehouse||{})};
+ if(locationId)assignments[warehouseId]=locationId;else delete assignments[warehouseId];
+ const updated={...product,storageLocationByWarehouse:assignments,updatedAt:new Date().toISOString()};
+ await store.put('products',updated);return updated;
 }
