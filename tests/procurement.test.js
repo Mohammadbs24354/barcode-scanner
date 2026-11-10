@@ -124,7 +124,7 @@ async function withMemoryCache(run){
  const records=new Map();
  const cache={
   keys:async()=>[...records.keys()].map(url=>({url})),
-  match:async key=>records.get(typeof key==='string'?key:key.url),
+  match:async key=>records.get(typeof key==='string'?key:key.url)?.clone(),
   put:async(key,response)=>{records.set(typeof key==='string'?key:key.url,response.clone())},
   delete:async key=>records.delete(typeof key==='string'?key:key.url)
  };
