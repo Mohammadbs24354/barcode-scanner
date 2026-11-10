@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { purchaseOrderStatus, validateReceiptQuantities, validateReturn, validateReservation, validateInventoryCounts, validateStorageLocation, validateSalesOrder, assertSalesOrderTransition, salesOrderTotal } from '../src/services/storage.js';
+import { purchaseOrderStatus, validateReceiptQuantities, validateReturn, validateReservation, validateInventoryCounts, validateStorageLocation, validateSalesOrder, assertSalesOrderTransition, salesOrderTotal, store, createSalesOrder, confirmSalesOrder, cancelSalesOrder, startSalesOrderPicking, updateSalesOrderPickingLine, packSalesOrder, shipSalesOrder, getAvailableStock } from '../src/services/storage.js';
 
 test('purchase order status reflects open, partial and complete quantities', () => {
  const lines=[{quantity:10,receivedQty:0},{quantity:5,receivedQty:0}];
@@ -115,4 +115,83 @@ test('sales order workflow only allows draft-confirm-pick-pack-ship transitions 
  assert.equal(assertSalesOrderTransition('confirmed','cancelled'),true);
  assert.throws(()=>assertSalesOrderTransition('shipped','cancelled'),/INVALID_SALES_ORDER_TRANSITION/);
  assert.throws(()=>assertSalesOrderTransition('draft','shipped'),/INVALID_SALES_ORDER_TRANSITION/);
+});
+
+
+async function withMemoryCache(run){
+ const previousWindow=globalThis.window,previousLocation=globalThis.location;
+ const records=new Map();
+ const cache={
+  keys:async()=>[...records.keys()].map(url=>new Request(url)),
+  match:async key=>records.get(typeof key==='string'?key:key.url),
+  put:async(key,response)=>{records.set(typeof key==='string'?key:key.url,response.clone())},
+  delete:async key=>records.delete(typeof key==='string'?key:key.url)
+ };
+ globalThis.window={caches:{open:async()=>cache}};
+ globalThis.location={origin:'https://stockflow.test'};
+ try{return await run()}finally{
+  if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
+  if(previousLocation===undefined)delete globalThis.location;else globalThis.location=previousLocation;
+ }
+}
+async function seedOrderStock(quantity=10){
+ await store.put('warehouses',{id:'wh1',name:'Hauptlager'});
+ await store.put('products',{id:'p1',name:'Testprodukt',barcode:'123',price:8,stock:quantity,stockByWarehouse:{wh1:quantity}});
+ return createSalesOrder({customer:'Testkunde',warehouseId:'wh1',lines:[{productId:'p1',quantity:4,unitPrice:8}]});
+}
+
+test('confirming a customer order automatically reserves stock without reducing physical inventory', async()=>{
+ await withMemoryCache(async()=>{
+  const order=await seedOrderStock(10);
+  const confirmed=await confirmSalesOrder(order.id);
+  const product=(await store.all('products'))[0],reservations=await store.all('reservations');
+  assert.equal(confirmed.status,'confirmed');
+  assert.equal(reservations.length,1);
+  assert.equal(reservations[0].salesOrderId,order.id);
+  assert.equal(product.stockByWarehouse.wh1,10);
+  assert.equal(await getAvailableStock(product,'wh1'),6);
+ });
+});
+
+test('customer order confirmation rejects insufficient stock without partial reservations', async()=>{
+ await withMemoryCache(async()=>{
+  const order=await seedOrderStock(3);
+  await assert.rejects(()=>confirmSalesOrder(order.id),/INSUFFICIENT_AVAILABLE_STOCK/);
+  assert.equal((await store.all('reservations')).length,0);
+  assert.equal((await store.all('salesOrders'))[0].status,'draft');
+ });
+});
+
+test('cancelling a confirmed customer order releases its reservation without changing physical stock', async()=>{
+ await withMemoryCache(async()=>{
+  const order=await seedOrderStock(10);
+  await confirmSalesOrder(order.id);
+  const cancelled=await cancelSalesOrder(order.id);
+  const reservation=(await store.all('reservations'))[0];
+  const product=(await store.all('products'))[0];
+  assert.equal(cancelled.status,'cancelled');
+  assert.equal(reservation.status,'released');
+  assert.equal(product.stockByWarehouse.wh1,10);
+  assert.equal(await getAvailableStock(product,'wh1'),10);
+ });
+});
+
+test('shipping a packed customer order fulfills the reservation once and rejects duplicate shipment', async()=>{
+ await withMemoryCache(async()=>{
+  const order=await seedOrderStock(10);
+  await confirmSalesOrder(order.id);
+  await startSalesOrderPicking(order.id);
+  await updateSalesOrderPickingLine(order.id,'p1',4);
+  await packSalesOrder(order.id);
+  const shipped=await shipSalesOrder(order.id);
+  assert.equal(shipped.status,'shipped');
+  assert.equal((await store.all('products'))[0].stockByWarehouse.wh1,6);
+  const reservation=(await store.all('reservations'))[0];
+  assert.equal(reservation.fulfilledQty,4);
+  const orderMovements=(await store.all('movements')).filter(m=>m.salesOrderId===order.id);
+  assert.equal(orderMovements.length,1);
+  await assert.rejects(()=>shipSalesOrder(order.id),/INVALID_SALES_ORDER_TRANSITION/);
+  assert.equal((await store.all('products'))[0].stockByWarehouse.wh1,6);
+  assert.equal((await store.all('movements')).filter(m=>m.salesOrderId===order.id).length,1);
+ });
 });
