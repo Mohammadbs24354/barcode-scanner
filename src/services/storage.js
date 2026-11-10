@@ -247,9 +247,12 @@ export async function assignProductStorageLocation(productId,warehouseId,locatio
 export function validateSalesOrder(input){
  const customer=String(input?.customer||'').trim(),warehouseId=String(input?.warehouseId||'').trim();
  if(!customer||!warehouseId||!Array.isArray(input?.lines)||!input.lines.length)throw Error('INVALID_SALES_ORDER');
+ const seenProducts=new Set();
  const lines=input.lines.map(line=>{
   const productId=String(line?.productId||'').trim(),quantity=Number(line?.quantity),unitPrice=Number(line?.unitPrice??0);
   if(!productId)throw Error('INVALID_SALES_ORDER_LINE');
+  if(seenProducts.has(productId))throw Error('DUPLICATE_SALES_ORDER_PRODUCT');
+  seenProducts.add(productId);
   if(!Number.isInteger(quantity)||quantity<=0)throw Error('INVALID_SALES_ORDER_QUANTITY');
   if(!Number.isFinite(unitPrice)||unitPrice<0)throw Error('INVALID_SALES_ORDER_PRICE');
   return {productId,quantity,unitPrice};
