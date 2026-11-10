@@ -66,7 +66,7 @@ export async function receivePurchaseOrder(orderId,quantities){
 export function validateReturn(input){
  const type=input?.type,quantity=Number(input?.quantity),condition=input?.condition;
  if(!['customer_return','supplier_return'].includes(type))throw Error('INVALID_RETURN_TYPE');
- if(!input.productId||!input.warehouseId||!String(input.reason||'').trim())throw Error('INVALID_RETURN');
+ if(!input.productId||!input.warehouseId||!String(input.reason||'').trim()||(type==='supplier_return'&&!input.supplierId))throw Error('INVALID_RETURN');
  if(!Number.isInteger(quantity)||quantity<=0)throw Error('INVALID_RETURN_QUANTITY');
  if(!['resellable','damaged','quarantine'].includes(condition))throw Error('INVALID_RETURN_CONDITION');
  return {...input,type,quantity,reason:String(input.reason).trim(),reference:String(input.reference||'').trim(),notes:String(input.notes||'').trim()};
@@ -74,10 +74,12 @@ export function validateReturn(input){
 
 export async function createReturn(input){
  const clean=validateReturn(input);
- const [products,warehouses]=await Promise.all([store.all('products'),store.all('warehouses')]);
+ const [products,warehouses,suppliers]=await Promise.all([store.all('products'),store.all('warehouses'),store.all('suppliers')]);
  const product=products.find(p=>p.id===clean.productId);
  if(!product)throw Error('PRODUCT_NOT_FOUND');
  if(!warehouses.some(w=>w.id===clean.warehouseId))throw Error('WAREHOUSE_NOT_FOUND');
+ const supplier=clean.type==='supplier_return'?suppliers.find(s=>s.id===clean.supplierId):null;
+ if(clean.type==='supplier_return'&&!supplier)throw Error('SUPPLIER_NOT_FOUND');
  const balances={...(product.stockByWarehouse||{main:Number(product.stock||0)})};
  const before=Number(balances[clean.warehouseId]||0);
  const stockImpact=clean.type==='customer_return'&&clean.condition==='resellable'?'in':clean.type==='supplier_return'?'out':'none';
@@ -92,7 +94,7 @@ export async function createReturn(input){
  }
  const movement={id:returnId+'-movement',returnId,productId:product.id,productName:product.name,barcode:product.barcode||'',type:stockImpact==='in'?'in':stockImpact==='out'?'out':'return-blocked',quantity:clean.quantity,before,after,warehouseId:clean.warehouseId,note:(clean.type==='customer_return'?'Kundenretoure':'Lieferantenretoure')+' · '+clean.reason,createdAt:now};
  await store.put('movements',movement);
- const record={id:returnId,...clean,productName:product.name,barcode:product.barcode||'',stockImpact,stockBefore:before,stockAfter:after,movementId:movement.id,status:'booked',createdAt:now};
+ const record={id:returnId,...clean,supplierName:supplier?.name||'',productName:product.name,barcode:product.barcode||'',stockImpact,stockBefore:before,stockAfter:after,movementId:movement.id,status:'booked',createdAt:now};
  await store.put('returns',record);
  return record;
 }
