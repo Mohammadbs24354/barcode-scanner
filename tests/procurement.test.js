@@ -123,7 +123,7 @@ async function withMemoryCache(run){
  const previousWindow=globalThis.window,previousLocation=globalThis.location,previousCaches=globalThis.caches;
  const records=new Map();
  const cache={
-  keys:async()=>[...records.keys()].map(url=>new Request(url)),
+  keys:async()=>[...records.keys()].map(url=>({url})),
   match:async key=>records.get(typeof key==='string'?key:key.url),
   put:async(key,response)=>{records.set(typeof key==='string'?key:key.url,response.clone())},
   delete:async key=>records.delete(typeof key==='string'?key:key.url)
@@ -139,6 +139,7 @@ async function withMemoryCache(run){
 }
 async function seedOrderStock(quantity=10,productId='p1'){
  await store.put('warehouses',{id:'wh1',name:'Hauptlager'});
+ assert.equal((await store.all('warehouses')).some(warehouse=>warehouse.id==='wh1'),true);
  await store.put('products',{id:productId,name:'Testprodukt '+productId,barcode:'123'+productId,price:8,stock:quantity,stockByWarehouse:{wh1:quantity}});
  return createSalesOrder({customer:'Testkunde',warehouseId:'wh1',lines:[{productId,quantity:4,unitPrice:8}]});
 }
