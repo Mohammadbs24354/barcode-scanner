@@ -137,64 +137,46 @@ async function withMemoryCache(run){
   if(previousCaches===undefined)delete globalThis.caches;else globalThis.caches=previousCaches;
  }
 }
-async function seedOrderStock(quantity=10){
+async function seedOrderStock(quantity=10,productId='p1'){
  await store.put('warehouses',{id:'wh1',name:'Hauptlager'});
- await store.put('products',{id:'p1',name:'Testprodukt',barcode:'123',price:8,stock:quantity,stockByWarehouse:{wh1:quantity}});
- return createSalesOrder({customer:'Testkunde',warehouseId:'wh1',lines:[{productId:'p1',quantity:4,unitPrice:8}]});
+ await store.put('products',{id:productId,name:'Testprodukt '+productId,barcode:'123'+productId,price:8,stock:quantity,stockByWarehouse:{wh1:quantity}});
+ return createSalesOrder({customer:'Testkunde',warehouseId:'wh1',lines:[{productId,quantity:4,unitPrice:8}]});
 }
 
-test('confirming a customer order automatically reserves stock without reducing physical inventory', async()=>{
+test('customer order reservation, cancellation, picking, packing and shipment workflow', async()=>{
  await withMemoryCache(async()=>{
-  const order=await seedOrderStock(10);
+  const order=await seedOrderStock(10,'p1');
   const confirmed=await confirmSalesOrder(order.id);
-  const product=(await store.all('products'))[0],reservations=await store.all('reservations');
+  const product=(await store.all('products')).find(p=>p.id==='p1'),reservations=await store.all('reservations');
   assert.equal(confirmed.status,'confirmed');
   assert.equal(reservations.length,1);
   assert.equal(reservations[0].salesOrderId,order.id);
   assert.equal(product.stockByWarehouse.wh1,10);
   assert.equal(await getAvailableStock(product,'wh1'),6);
- });
-});
 
-test('customer order confirmation rejects insufficient stock without partial reservations', async()=>{
- await withMemoryCache(async()=>{
-  const order=await seedOrderStock(3);
-  await assert.rejects(()=>confirmSalesOrder(order.id),/INSUFFICIENT_AVAILABLE_STOCK/);
-  assert.equal((await store.all('reservations')).length,0);
-  assert.equal((await store.all('salesOrders'))[0].status,'draft');
- });
-});
-
-test('cancelling a confirmed customer order releases its reservation without changing physical stock', async()=>{
- await withMemoryCache(async()=>{
-  const order=await seedOrderStock(10);
-  await confirmSalesOrder(order.id);
   const cancelled=await cancelSalesOrder(order.id);
-  const reservation=(await store.all('reservations'))[0];
-  const product=(await store.all('products'))[0];
   assert.equal(cancelled.status,'cancelled');
-  assert.equal(reservation.status,'released');
-  assert.equal(product.stockByWarehouse.wh1,10);
-  assert.equal(await getAvailableStock(product,'wh1'),10);
- });
-});
+  assert.equal((await store.all('reservations'))[0].status,'released');
+  assert.equal(await getAvailableStock((await store.all('products')).find(p=>p.id==='p1'),'wh1'),10);
 
-test('shipping a packed customer order fulfills the reservation once and rejects duplicate shipment', async()=>{
- await withMemoryCache(async()=>{
-  const order=await seedOrderStock(10);
-  await confirmSalesOrder(order.id);
-  await startSalesOrderPicking(order.id);
-  await updateSalesOrderPickingLine(order.id,'p1',4);
-  await packSalesOrder(order.id);
-  const shipped=await shipSalesOrder(order.id);
+  const insufficient=await seedOrderStock(3,'p2');
+  await assert.rejects(()=>confirmSalesOrder(insufficient.id),/INSUFFICIENT_AVAILABLE_STOCK/);
+  assert.equal((await store.all('reservations')).length,1);
+  assert.equal((await store.all('salesOrders')).find(o=>o.id===insufficient.id).status,'draft');
+
+  const shipping=await seedOrderStock(10,'p3');
+  await confirmSalesOrder(shipping.id);
+  await startSalesOrderPicking(shipping.id);
+  await updateSalesOrderPickingLine(shipping.id,'p3',4);
+  await packSalesOrder(shipping.id);
+  const shipped=await shipSalesOrder(shipping.id);
   assert.equal(shipped.status,'shipped');
-  assert.equal((await store.all('products'))[0].stockByWarehouse.wh1,6);
-  const reservation=(await store.all('reservations'))[0];
+  assert.equal((await store.all('products')).find(p=>p.id==='p3').stockByWarehouse.wh1,6);
+  const reservation=(await store.all('reservations')).find(r=>r.salesOrderId===shipping.id);
   assert.equal(reservation.fulfilledQty,4);
-  const orderMovements=(await store.all('movements')).filter(m=>m.salesOrderId===order.id);
-  assert.equal(orderMovements.length,1);
-  await assert.rejects(()=>shipSalesOrder(order.id),/INVALID_SALES_ORDER_TRANSITION/);
-  assert.equal((await store.all('products'))[0].stockByWarehouse.wh1,6);
-  assert.equal((await store.all('movements')).filter(m=>m.salesOrderId===order.id).length,1);
+  assert.equal((await store.all('movements')).filter(m=>m.salesOrderId===shipping.id).length,1);
+  await assert.rejects(()=>shipSalesOrder(shipping.id),/INVALID_SALES_ORDER_TRANSITION/);
+  assert.equal((await store.all('products')).find(p=>p.id==='p3').stockByWarehouse.wh1,6);
+  assert.equal((await store.all('movements')).filter(m=>m.salesOrderId===shipping.id).length,1);
  });
 });
