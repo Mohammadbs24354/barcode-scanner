@@ -1,5 +1,5 @@
 const CACHE_NAME='stockflow-records-v1';
-const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts','returns','reservations','countSessions','storageLocations']);
+const STORE_NAMES=new Set(['products','movements','warehouses','suppliers','purchaseOrders','receipts','returns','reservations','countSessions','storageLocations','salesOrders']);
 function recordUrl(name,key){if(!STORE_NAMES.has(name))throw Error('INVALID_STORE');return new URL('/__stockflow_cache__/'+name+'/'+encodeURIComponent(key),location.origin).href}
 async function openCache(){if(!('caches'in window))throw Error('CACHE_API_UNAVAILABLE');return caches.open(CACHE_NAME)}
 export const store={
@@ -121,7 +121,7 @@ export async function createReservation(input){
  await store.put('reservations',reservation);
  return reservation;
 }
-export async function fulfillReservation(reservationId,quantity){
+export async function fulfillReservation(reservationId,quantity,metadata={}){
  const reservations=await store.all('reservations'),reservation=reservations.find(r=>r.id===reservationId);
  if(!reservation||!['active','partially_fulfilled'].includes(reservation.status))throw Error('RESERVATION_NOT_ACTIVE');
  const qty=Number(quantity),remaining=Number(reservation.quantity)-Number(reservation.fulfilledQty||0)-Number(reservation.releasedQty||0);
@@ -135,16 +135,17 @@ export async function fulfillReservation(reservationId,quantity){
  const updated={...product,stockByWarehouse:balances,stock:total({stockByWarehouse:balances}),updatedAt:now};
  await store.put('products',updated);
  const movementId=id();
- await store.put('movements',{id:movementId,reservationId,productId:product.id,productName:product.name,barcode:product.barcode||'',type:'out',quantity:qty,before,after,warehouseId:reservation.warehouseId,note:'Reservierung '+reservation.orderReference+' ausgeliefert',createdAt:now});
+ await store.put('movements',{id:movementId,reservationId,salesOrderId:metadata.salesOrderId||reservation.salesOrderId||'',orderNumber:metadata.orderNumber||reservation.orderReference||'',productId:product.id,productName:product.name,barcode:product.barcode||'',type:'out',quantity:qty,before,after,warehouseId:reservation.warehouseId,note:'Auftrag '+(metadata.orderNumber||reservation.orderReference||'')+' ausgeliefert',createdAt:now});
  reservation.fulfilledQty=Number(reservation.fulfilledQty||0)+qty;
  reservation.status=reservation.fulfilledQty+Number(reservation.releasedQty||0)>=Number(reservation.quantity)?(reservation.releasedQty?'released':'fulfilled'):'partially_fulfilled';
  reservation.updatedAt=now;reservation.lastMovementId=movementId;
  await store.put('reservations',reservation);
  return {reservation,product:updated,movementId};
 }
-export async function releaseReservation(reservationId){
+export async function releaseReservation(reservationId,options={}){
  const reservations=await store.all('reservations'),reservation=reservations.find(r=>r.id===reservationId);
  if(!reservation||!['active','partially_fulfilled'].includes(reservation.status))throw Error('RESERVATION_NOT_ACTIVE');
+ if(reservation.salesOrderId&&options.salesOrderId!==reservation.salesOrderId)throw Error('ORDER_RESERVATION_MANAGED_BY_ORDER');
  const remaining=Number(reservation.quantity)-Number(reservation.fulfilledQty||0)-Number(reservation.releasedQty||0);
  if(remaining<=0)throw Error('RESERVATION_NOT_ACTIVE');
  reservation.releasedQty=Number(reservation.releasedQty||0)+remaining;
@@ -240,4 +241,101 @@ export async function assignProductStorageLocation(productId,warehouseId,locatio
  if(locationId)assignments[warehouseId]=locationId;else delete assignments[warehouseId];
  const updated={...product,storageLocationByWarehouse:assignments,updatedAt:new Date().toISOString()};
  await store.put('products',updated);return updated;
+}
+
+
+export function validateSalesOrder(input){
+ const customer=String(input?.customer||'').trim(),warehouseId=String(input?.warehouseId||'').trim();
+ if(!customer||!warehouseId||!Array.isArray(input?.lines)||!input.lines.length)throw Error('INVALID_SALES_ORDER');
+ const lines=input.lines.map(line=>{
+  const productId=String(line?.productId||'').trim(),quantity=Number(line?.quantity),unitPrice=Number(line?.unitPrice??0);
+  if(!productId)throw Error('INVALID_SALES_ORDER_LINE');
+  if(!Number.isInteger(quantity)||quantity<=0)throw Error('INVALID_SALES_ORDER_QUANTITY');
+  if(!Number.isFinite(unitPrice)||unitPrice<0)throw Error('INVALID_SALES_ORDER_PRICE');
+  return {productId,quantity,unitPrice};
+ });
+ return {customer,customerEmail:String(input.customerEmail||'').trim(),customerAddress:String(input.customerAddress||'').trim(),warehouseId,notes:String(input.notes||'').trim(),lines};
+}
+export function assertSalesOrderTransition(from,to){
+ const allowed={draft:['confirmed','cancelled'],confirmed:['picking','cancelled'],picking:['packed','cancelled'],packed:['shipping','cancelled'],shipping:['shipped'],shipped:[],cancelled:[]};
+ if(!allowed[from]?.includes(to))throw Error('INVALID_SALES_ORDER_TRANSITION');
+ return true;
+}
+export function salesOrderTotal(lines){return lines.reduce((sum,line)=>sum+Number(line.quantity||0)*Number(line.unitPrice||0),0)}
+export async function createSalesOrder(input){
+ const clean=validateSalesOrder(input),[products,warehouses]=await Promise.all([store.all('products'),store.all('warehouses')]);
+ if(!warehouses.some(w=>w.id===clean.warehouseId))throw Error('WAREHOUSE_NOT_FOUND');
+ const productMap=new Map(products.map(p=>[p.id,p]));
+ const lines=clean.lines.map(line=>{const product=productMap.get(line.productId);if(!product)throw Error('PRODUCT_NOT_FOUND');return {...line,productName:product.name,barcode:product.barcode||'',pickedQty:0,reservationId:null}});
+ const now=new Date().toISOString(),order={id:id(),number:'SO-'+Date.now().toString().slice(-8),...clean,lines,status:'draft',total:salesOrderTotal(lines),createdAt:now,updatedAt:now};
+ await store.put('salesOrders',order);return order;
+}
+export async function confirmSalesOrder(orderId){
+ const orders=await store.all('salesOrders'),order=orders.find(o=>o.id===orderId);
+ if(!order)throw Error('SALES_ORDER_NOT_FOUND');
+ assertSalesOrderTransition(order.status,'confirmed');
+ const [products,warehouses]=await Promise.all([store.all('products'),store.all('warehouses')]);
+ if(!warehouses.some(w=>w.id===order.warehouseId))throw Error('WAREHOUSE_NOT_FOUND');
+ const productMap=new Map(products.map(p=>[p.id,p])),required=new Map();
+ for(const line of order.lines){if(!productMap.has(line.productId))throw Error('PRODUCT_NOT_FOUND');required.set(line.productId,(required.get(line.productId)||0)+Number(line.quantity))}
+ for(const [productId,quantity] of required){if(await getAvailableStock(productMap.get(productId),order.warehouseId)<quantity)throw Error('INSUFFICIENT_AVAILABLE_STOCK')}
+ const created=[];
+ try{
+  for(const line of order.lines){
+   const reservation=await createReservation({productId:line.productId,warehouseId:order.warehouseId,quantity:line.quantity,orderReference:order.number,customer:order.customer,notes:'Automatisch für Kundenauftrag reserviert',salesOrderId:order.id});
+   line.reservationId=reservation.id;created.push(reservation.id);
+  }
+  order.status='confirmed';order.confirmedAt=new Date().toISOString();order.updatedAt=order.confirmedAt;
+  await store.put('salesOrders',order);return order;
+ }catch(error){
+  for(const reservationId of created){try{await releaseReservation(reservationId,{salesOrderId:order.id})}catch{/* Compensating release is best effort in non-transactional CacheStorage. */}}
+  throw error;
+ }
+}
+export async function updateSalesOrderPickingLine(orderId,productId,pickedQty){
+ const orders=await store.all('salesOrders'),order=orders.find(o=>o.id===orderId);
+ if(!order||order.status!=='picking')throw Error('SALES_ORDER_NOT_PICKING');
+ const line=order.lines.find(item=>item.productId===productId);
+ if(!line)throw Error('SALES_ORDER_LINE_NOT_FOUND');
+ const quantity=Number(pickedQty);
+ if(!Number.isInteger(quantity)||quantity<0||quantity>line.quantity)throw Error('INVALID_PICKED_QUANTITY');
+ line.pickedQty=quantity;order.updatedAt=new Date().toISOString();await store.put('salesOrders',order);return order;
+}
+export async function startSalesOrderPicking(orderId){
+ const orders=await store.all('salesOrders'),order=orders.find(o=>o.id===orderId);
+ if(!order)throw Error('SALES_ORDER_NOT_FOUND');
+ assertSalesOrderTransition(order.status,'picking');
+ order.status='picking';order.pickingStartedAt=new Date().toISOString();order.updatedAt=order.pickingStartedAt;await store.put('salesOrders',order);return order;
+}
+export async function packSalesOrder(orderId){
+ const orders=await store.all('salesOrders'),order=orders.find(o=>o.id===orderId);
+ if(!order)throw Error('SALES_ORDER_NOT_FOUND');
+ assertSalesOrderTransition(order.status,'packed');
+ if(order.lines.some(line=>Number(line.pickedQty||0)<Number(line.quantity)))throw Error('PICKING_INCOMPLETE');
+ order.status='packed';order.packedAt=new Date().toISOString();order.updatedAt=order.packedAt;await store.put('salesOrders',order);return order;
+}
+export async function shipSalesOrder(orderId){
+ const orders=await store.all('salesOrders'),order=orders.find(o=>o.id===orderId);
+ if(!order)throw Error('SALES_ORDER_NOT_FOUND');
+ if(order.status==='packed'){assertSalesOrderTransition(order.status,'shipping');order.status='shipping';order.shippingStartedAt=new Date().toISOString();order.updatedAt=order.shippingStartedAt;await store.put('salesOrders',order)}
+ else if(order.status!=='shipping')throw Error('INVALID_SALES_ORDER_TRANSITION');
+ const reservations=await store.all('reservations');
+ for(const line of order.lines){
+  const reservation=reservations.find(item=>item.id===line.reservationId);
+  if(!reservation)throw Error('SALES_ORDER_RESERVATION_MISSING');
+  const remaining=Number(reservation.quantity)-Number(reservation.fulfilledQty||0)-Number(reservation.releasedQty||0);
+  if(Number(reservation.releasedQty||0)>0)throw Error('SALES_ORDER_RESERVATION_RELEASED');
+  if(remaining>0)await fulfillReservation(reservation.id,remaining,{salesOrderId:order.id,orderNumber:order.number});
+ }
+ order.status='shipped';order.shippedAt=new Date().toISOString();order.updatedAt=order.shippedAt;await store.put('salesOrders',order);return order;
+}
+export async function cancelSalesOrder(orderId){
+ const orders=await store.all('salesOrders'),order=orders.find(o=>o.id===orderId);
+ if(!order)throw Error('SALES_ORDER_NOT_FOUND');
+ assertSalesOrderTransition(order.status,'cancelled');
+ if(order.status!=='draft'){
+  const reservations=await store.all('reservations');
+  for(const line of order.lines){const reservation=reservations.find(item=>item.id===line.reservationId);if(reservation&&['active','partially_fulfilled'].includes(reservation.status))await releaseReservation(reservation.id,{salesOrderId:order.id})}
+ }
+ order.status='cancelled';order.cancelledAt=new Date().toISOString();order.updatedAt=order.cancelledAt;await store.put('salesOrders',order);return order;
 }
